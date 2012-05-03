@@ -9,6 +9,8 @@
 #import "SDURLCache.h"
 #import <CommonCrypto/CommonDigest.h>
 
+#import "NSString+MWUrlStrings.h"
+
 static NSTimeInterval const kSDURLCacheInfoDefaultMinCacheInterval = 5 * 60; // 5 minute
 static NSString *const kSDURLCacheInfoFileName = @"cacheInfo.plist";
 static NSString *const kSDURLCacheInfoDiskUsageKey = @"diskUsage";
@@ -424,6 +426,22 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
     }
 }
 
+- (NSDictionary *)queryDictionary:(NSString *)query
+{
+    NSArray *params = [query componentsSeparatedByString:@"&"];
+
+    NSInteger count = [params count];
+    NSMutableDictionary *output = [NSMutableDictionary dictionaryWithCapacity:count];
+    for (NSInteger i = 0; i < count; i++) {
+        NSArray *field = [(NSString *)[params objectAtIndex:i] componentsSeparatedByString:@"="];
+        if ([field count] == 2) {
+            [output setObject:[[field objectAtIndex:1] unescapedUrlString] forKey:[field objectAtIndex:0]];
+        }
+    }
+
+    return output;
+}
+
 #pragma mark SDURLCache
 
 + (NSString *)defaultCachePath
@@ -478,8 +496,13 @@ static NSDateFormatter* CreateDateFormatter(NSString *format)
         // RFC 2616 section 13.3.4 says clients MUST use Etag in any cache-conditional request if provided by server
         if (![headers objectForKey:@"Etag"])
         {
-            NSDate *expirationDate = [SDURLCache expirationDateFromHeaders:headers
+            NSMutableDictionary *mutableHeaders = [headers mutableCopy];
+            NSDictionary *queryParams = [self queryDictionary:request.URL.query];
+            [mutableHeaders addEntriesFromDictionary:queryParams];
+
+            NSDate *expirationDate = [SDURLCache expirationDateFromHeaders:mutableHeaders
                                                             withStatusCode:((NSHTTPURLResponse *)cachedResponse.response).statusCode];
+            [mutableHeaders release];
             if (!expirationDate || [expirationDate timeIntervalSinceNow] - minCacheInterval <= 0)
             {
                 // This response is not cacheable, headers said
